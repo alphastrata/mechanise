@@ -1,12 +1,9 @@
-
 #![allow(dead_code)]
 use std::env;
 use reqwest::{Client};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use thiserror::Error;
-use std::fmt;
-use tokio::io::{AsyncBufReadExt, BufReader};
+
 
 
 #[derive(Debug, Deserialize)]
@@ -85,7 +82,7 @@ struct CreateMessageRequest<'a> {
    model: &'a str,
    max_tokens: u32,
    messages: Vec<Message<'a>>,
-   steam: bool
+   stream: bool
 }
 
 #[derive(Error, Debug)]
@@ -125,7 +122,7 @@ impl AnthropicClient {
            model,
            max_tokens,
            messages,
-           steam: false
+           stream: false
        };
 
        let response = self.client
@@ -169,7 +166,7 @@ impl AnthropicClient {
             model,
             max_tokens,
             messages,
-            steam: true,
+            stream: true,
         };
 
         let response = self
@@ -275,6 +272,29 @@ async fn runit() {
         }
         Err(err) => {
             eprintln!("Error: {}", err);
+        }
+    }
+}
+
+
+#[tokio::test]
+async fn test_create_message_stream() {
+    let client = AnthropicClient::new();
+    let messages = vec![Message {
+        role: "user",
+        content: TEST_PROMPT,
+    }];
+
+    let result = client
+        .create_message_stream("claude-3-opus-20240229", 1024, messages)
+        .await;
+
+    match result {
+        Ok(resp) => {
+            dbg!(resp);
+        }
+        Err(err) => {
+            panic!("Error during streaming: {}", err);
         }
     }
 }
