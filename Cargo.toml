@@ -14,7 +14,7 @@ Note: This API was in part created with tools like Anthropic's Claude and Sonnet
 """
 authors = ["jer, <alphastrata@gmail.com>"]
 readme = "./README.md"
-keywords = ["AI", "Anthropic", "claude", "claude3", "Text-Generation", "LLM"]
+keywords = ["Anthropic", "claude", "claude3", "Text-Generation", "LLM"]
 repository = "https://github.com/alphastrata/mechanise"
 
 [dependencies]
