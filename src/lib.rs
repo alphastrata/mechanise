@@ -1,7 +1,5 @@
-#![allow(dead_code)]
 use futures_util::Stream;
 use futures_util::StreamExt;
-use log::debug;
 use log::error;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -14,27 +12,28 @@ static CONTROL_CHAR_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"[\x00-\x1F]")
 
 #[derive(Debug, Deserialize)]
 pub struct Usage {
-   pub input_tokens: u32,
-   pub output_tokens: u32,
+    pub input_tokens: u32,
+    pub output_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename = "message")]
 pub struct MessageResponse {
-    id: String,
+    pub id: String,
     #[serde(rename = "type")]
     _type: String,
     pub role: String,
     pub content: Vec<ContentBlock>,
-    model: String,
-    stop_reason: String,
-    stop_sequence: Option<String>,
+    pub model: String,
+    pub stop_reason: String,
+    pub stop_sequence: Option<String>,
     pub usage: Usage,
 }
 
 #[derive(Debug, Deserialize)]
 #[non_exhaustive]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 enum StreamEvent {
     ContentBlockDeltaData {
         index: usize,
@@ -86,16 +85,16 @@ pub struct ContentBlock {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Message<'a> {
-   pub  role: &'a str,
-  pub   content: &'a str,
+    pub role: &'a str,
+    pub content: &'a str,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CreateMessageRequest<'a> {
-   pub  model: &'a str,
-   pub  max_tokens: u32,
-   pub  messages: Vec<Message<'a>>,
-   pub  stream: bool,
+    pub model: &'a str,
+    pub max_tokens: u32,
+    pub messages: Vec<Message<'a>>,
+    pub stream: bool,
 }
 
 #[derive(Error, Debug)]
@@ -114,11 +113,20 @@ pub enum AnthropicError {
 
     #[error("Error converting bytes to string: {0}")]
     BytesToStringError(#[from] std::str::Utf8Error),
+
+    #[error("Error processing values received from Anthropic Responses")]
+    ParseResponseError,
 }
 
 pub struct AnthropicClient {
     client: Client,
     api_key: String,
+}
+
+impl Default for AnthropicClient {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AnthropicClient {
@@ -128,7 +136,7 @@ impl AnthropicClient {
         Self { client, api_key }
     }
 
-   pub async fn create_message<'a>(
+    pub async fn create_message<'a>(
         &self,
         model: &'a str,
         max_tokens: u32,
@@ -161,7 +169,7 @@ impl AnthropicClient {
         Ok(response_body)
     }
 
-   pub async fn create_message_stream<'a>(
+    pub async fn create_message_stream<'a>(
         &self,
         model: &'a str,
         max_tokens: u32,
@@ -173,12 +181,6 @@ impl AnthropicClient {
             max_tokens,
             stream: true,
         };
-
-        #[cfg(debug_assertions)]
-        debug!(
-            "Sending CreateMessageRequest:\n{:#?}",
-            serde_json::to_string(&request).unwrap()
-        );
 
         let response = self
             .client
@@ -203,7 +205,6 @@ impl AnthropicClient {
     where
         S: Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
     {
-
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             let line = std::str::from_utf8(&chunk)?;
@@ -213,8 +214,7 @@ impl AnthropicClient {
 
             let sanitised_line = CONTROL_CHAR_REGEX.replace_all(line, "");
 
-            if sanitised_line.starts_with("event: ") {
-                let event_type = &sanitised_line["event: ".len()..];
+            if let Some(event_type) = &sanitised_line.strip_prefix("event: ") {
                 log::debug!("event_type: {:#?}", event_type);
                 let Ok(event) =
                     serde_json::from_str::<StreamEvent>(&format!(r#"{{"type":"{}"}}"#, event_type))
@@ -237,7 +237,6 @@ impl AnthropicClient {
                     StreamEvent::ContentBlockDeltaData {  delta,.. } => {
                         // We should do something more sophisiticated than this...
                         print!("{}", delta.text);
-                        
                     }
                     StreamEvent::ContentBlockStop { index: _ } => {
                         log::debug!("This Content block has ended...");
@@ -249,12 +248,12 @@ impl AnthropicClient {
                     }
                     StreamEvent::Ping => {
                         log::debug!("Received Ping...");
-                        
                     }
                     _ => unreachable!("You should only see this if the Anthropic API has added new goodies for us to implement against, please file a bug report!"),
                 }
             } else {
-                log::debug!("sanitised_line: {:#?}", sanitised_line);
+                log::error!("Failed to get an `event:` prefix on returned value from the API");
+                return Err(AnthropicError::ParseResponseError);
             }
         }
 
