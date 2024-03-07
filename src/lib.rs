@@ -227,27 +227,30 @@ impl AnthropicClient {
 
                 log::debug!("PreMatch Event: {:#?}", event);
                 match event {
+                    StreamEvent::MessageStartData { _type: message } => {
+                        log::debug!("New Message stream starting...");
+                        message.message.content.iter().for_each(|cb| print!("{}", cb.text));
+                    }
                     StreamEvent::ContentBlockStart { ..
                     } => {
-                        // Ignore them
-                    }
-                    StreamEvent::Ping => {
-                        // Ignore ping events
+                        log::debug!("New Content block starting...");
                     }
                     StreamEvent::ContentBlockDeltaData {  delta,.. } => {
+                        // We should do something more sophisiticated than this...
                         print!("{}", delta.text);
                         
                     }
                     StreamEvent::ContentBlockStop { index: _ } => {
-                        // Ignore content block stop events
+                        log::debug!("This Content block has ended...");
                     }
                     StreamEvent::MessageDeltaData { delta } => {
                         log::debug!("stop_reason: {}", delta.stop_reason);
                         log::debug!("stop_sequence: {}", delta.stop_sequence.unwrap_or_default());
                         log::debug!("usage: {}", delta.usage.output_tokens);
                     }
-                    StreamEvent::MessageStartData { _type: message } => {
-                        message.message.content.iter().for_each(|cb| print!("{}", cb.text));
+                    StreamEvent::Ping => {
+                        log::debug!("Received Ping...");
+                        
                     }
                     _ => unreachable!("You should only see this if the Anthropic API has added new goodies for us to implement against, please file a bug report!"),
                 }
