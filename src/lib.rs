@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use futures_util::Stream;
 use futures_util::StreamExt;
+use log::debug;
 use log::error;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -31,7 +32,8 @@ struct MessageResponse {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
+#[serde(rename_all = "snake_case")]
 enum StreamEvent {
     MessageStart {
         message: MessageResponse,
@@ -50,6 +52,9 @@ enum StreamEvent {
     },
     MessageDelta {
         delta: MessageResponseDelta,
+    },
+    MessageStartData {
+        inner: serde_json::Value,
     },
     MessageStop,
 }
@@ -75,7 +80,7 @@ struct ContentBlock {
     text: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Message<'a> {
     role: &'a str,
     content: &'a str,
@@ -151,9 +156,7 @@ impl AnthropicClient {
         let response_body = response.json().await?;
         Ok(response_body)
     }
-}
 
-impl AnthropicClient {
     async fn create_message_stream<'a>(
         &self,
         model: &'a str,
@@ -162,10 +165,16 @@ impl AnthropicClient {
     ) -> Result<(), AnthropicError> {
         let request = CreateMessageRequest {
             model,
-            max_tokens,
             messages,
+            max_tokens,
             stream: true,
         };
+
+        #[cfg(debug_assertions)]
+        debug!(
+            "Sending CreateMessageRequest:\n{:#?}",
+            serde_json::to_string(&request).unwrap()
+        );
 
         let response = self
             .client
@@ -197,14 +206,23 @@ impl AnthropicClient {
             let chunk = chunk?;
             let line = std::str::from_utf8(&chunk)?;
 
+            log::debug!("Chunk: {}", chunk.len());
+            log::debug!("line : {} ", line);
+
             let sanitised_line = CONTROL_CHAR_REGEX.replace_all(line, "");
 
             if sanitised_line.starts_with("event: ") {
                 let event_type = &sanitised_line["event: ".len()..];
-                let event =
+                log::debug!("event_type: {:#?}", event_type);
+                let Ok(event) =
                     serde_json::from_str::<StreamEvent>(&format!(r#"{{"type":"{}"}}"#, event_type))
-                        .map_err(AnthropicError::EventDeserializationError)?;
+                // .map_err(AnthropicError::EventDeserializationError)?;
+                else {
+                    log::error!("sanitised_line: {}", sanitised_line);
+                    continue;
+                };
 
+                log::debug!("PreMatch Event: {:#?}", event);
                 match event {
                     StreamEvent::MessageStart { message } => {
                         message_response = Some(message);
@@ -252,7 +270,20 @@ impl AnthropicClient {
                             ));
                         }
                     }
+
+                    StreamEvent::MessageStartData { inner: v } => {
+                        log::error!("Messagestartdata");
+                        log::debug!("{:#?}", v);
+                    }
+
+                    #[allow(unreachable_code)]
+                    _ => {
+                        log::error!("Unknown match arm");
+                        log::debug!("{:#?}", event);
+                    }
                 }
+            } else {
+                log::debug!("sanitised_line: {:#?}", sanitised_line);
             }
         }
 
@@ -300,7 +331,7 @@ mod test {
         }];
 
         let result = client
-            .create_message_stream("claude-3-opus-20240229", 1024, messages)
+            .create_message_stream("claude-3-opus-20240229", 10, messages) // I'm a cheapskate :p
             .await;
 
         match result {
