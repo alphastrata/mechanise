@@ -1,30 +1,34 @@
 #![allow(dead_code)]
-use std::env;
-use reqwest::{Client};
+use futures_util::Stream;
+use futures_util::StreamExt;
+use log::error;
+use once_cell::sync::Lazy;
+use regex::Regex;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::env;
 use thiserror::Error;
 
-
+static CONTROL_CHAR_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"[\x00-\x1F]").unwrap());
 
 #[derive(Debug, Deserialize)]
 struct Usage {
-   input_tokens: u32,
-   output_tokens: u32,
+    input_tokens: u32,
+    output_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
 struct MessageResponse {
-   id: String,
-   #[serde(rename = "type")]
-   type_field: String,
-   role: String,
-   content: Vec<ContentBlock>,
-   model: String,
-   stop_reason: String,
-   stop_sequence: Option<String>,
-   usage: Usage,
+    id: String,
+    #[serde(rename = "type")]
+    type_field: String,
+    role: String,
+    content: Vec<ContentBlock>,
+    model: String,
+    stop_reason: String,
+    stop_sequence: Option<String>,
+    usage: Usage,
 }
-
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -66,96 +70,90 @@ struct MessageResponseDelta {
 
 #[derive(Debug, Deserialize)]
 struct ContentBlock {
-   #[serde(rename = "type")]
-   type_field: String,
-   text: String,
+    #[serde(rename = "type")]
+    type_field: String,
+    text: String,
 }
 
 #[derive(Debug, Serialize)]
 struct Message<'a> {
-   role: &'a str,
-   content: &'a str,
+    role: &'a str,
+    content: &'a str,
 }
 
 #[derive(Debug, Serialize)]
 struct CreateMessageRequest<'a> {
-   model: &'a str,
-   max_tokens: u32,
-   messages: Vec<Message<'a>>,
-   stream: bool
+    model: &'a str,
+    max_tokens: u32,
+    messages: Vec<Message<'a>>,
+    stream: bool,
 }
 
 #[derive(Error, Debug)]
 enum AnthropicError {
     #[error(transparent)]
     ReqwestError(#[from] reqwest::Error),
-    
+
     #[error("Unexpected response status: {0}")]
     UnexpectedStatus(u16),
-    
+
     #[error("Error response from Anthropic: {0}")]
     AnthropicError(String),
 
     #[error("Error deserializing stream event: {0}")]
     EventDeserializationError(#[from] serde_json::Error),
-    
+
     #[error("Error converting bytes to string: {0}")]
     BytesToStringError(#[from] std::str::Utf8Error),
 }
 
-
 struct AnthropicClient {
-   client: Client,
-   api_key: String,
+    client: Client,
+    api_key: String,
 }
 
 impl AnthropicClient {
-   fn new() -> Self {
-       let api_key = env::var("ANTHROPIC_API_KEY")
-           .expect("ANTHROPIC_API_KEY must be set");
-       let client = Client::new();
-       Self { client, api_key }
-   }
+    fn new() -> Self {
+        let api_key = env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
+        let client = Client::new();
+        Self { client, api_key }
+    }
 
-   async fn create_message<'a>(&self, model: &'a str, max_tokens: u32, messages: Vec<Message<'a>>) -> Result<MessageResponse, AnthropicError> {
-       let request = CreateMessageRequest {
-           model,
-           max_tokens,
-           messages,
-           stream: false
-       };
+    async fn create_message<'a>(
+        &self,
+        model: &'a str,
+        max_tokens: u32,
+        messages: Vec<Message<'a>>,
+    ) -> Result<MessageResponse, AnthropicError> {
+        let request = CreateMessageRequest {
+            model,
+            max_tokens,
+            messages,
+            stream: false,
+        };
 
-       let response = self.client
-           .post("https://api.anthropic.com/v1/messages")
-           .bearer_auth(&self.api_key)
-           .header("anthropic-version", "2023-06-01")
-           .header("content-type", "application/json")
-           .json(&request)
-           .send()
-           .await?;
+        let response = self
+            .client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &self.api_key) // Use the correct header name
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&request)
+            .send()
+            .await?;
 
-       let status = response.status().as_u16();
-       if status != 200 {
-           let body = response.text().await?;
-           return Err(AnthropicError::AnthropicError(body));
-       }
+        let status = response.status().as_u16();
+        if status != 200 {
+            let body = response.text().await?;
+            return Err(AnthropicError::AnthropicError(body));
+        }
 
-       let response_body = response.json().await?;
-       Ok(response_body)
-   }
-
-   
+        let response_body = response.json().await?;
+        Ok(response_body)
+    }
 }
 
-
-//snip1
-
-use futures_util::StreamExt;
-use futures_util::Stream;
-
 impl AnthropicClient {
-    // ... (previous implementations)
-
     async fn create_message_stream<'a>(
         &self,
         model: &'a str,
@@ -172,7 +170,7 @@ impl AnthropicClient {
         let response = self
             .client
             .post("https://api.anthropic.com/v1/messages")
-            .bearer_auth(&self.api_key)
+            .header("x-api-key", &self.api_key) // Use the correct header name
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
             .json(&request)
@@ -180,6 +178,7 @@ impl AnthropicClient {
             .await?;
 
         if response.status() != reqwest::StatusCode::OK {
+            error!("StatusCode: {}", &response.status());
             let body = response.text().await?;
             return Err(AnthropicError::AnthropicError(body));
         }
@@ -198,17 +197,23 @@ impl AnthropicClient {
             let chunk = chunk?;
             let line = std::str::from_utf8(&chunk)?;
 
-            if line.starts_with("event: ") {
-                let event_type = &line["event: ".len()..];
-                let event = serde_json::from_str::<StreamEvent>(&format!(r#"{{"type":"{}"}}"#, event_type))
-                    .map_err(AnthropicError::EventDeserializationError)?;
+            let sanitised_line = CONTROL_CHAR_REGEX.replace_all(line, "");
+
+            if sanitised_line.starts_with("event: ") {
+                let event_type = &sanitised_line["event: ".len()..];
+                let event =
+                    serde_json::from_str::<StreamEvent>(&format!(r#"{{"type":"{}"}}"#, event_type))
+                        .map_err(AnthropicError::EventDeserializationError)?;
 
                 match event {
                     StreamEvent::MessageStart { message } => {
                         message_response = Some(message);
                         content_blocks.clear();
                     }
-                    StreamEvent::ContentBlockStart { index, content_block } => {
+                    StreamEvent::ContentBlockStart {
+                        index,
+                        content_block,
+                    } => {
                         content_blocks.insert(index, content_block);
                     }
                     StreamEvent::Ping => {
@@ -256,46 +261,55 @@ impl AnthropicClient {
 }
 
 #[cfg(test)]
-mod test{
-use super::*;
-const TEST_PROMPT: &'static str = "write me a rust function that generates a SECURE password of length `n`. Ideally, use the openssl crate, iterator patterns and be idiomatic. respond only with the code.";
+mod test {
+    use super::*;
+    const TEST_PROMPT: &'static str = "Write me a rust function that generates a SECURE password of length `n`. Ideally, use the openssl crate, iterator patterns and be idiomatic. respond ONLY with the code, I do NOT require an explination.";
 
-#[tokio::test]
-async fn runit() {
-    let client = AnthropicClient::new();
-    let messages = vec![Message { role: "user", content: TEST_PROMPT }];
-    let response = client.create_message("claude-3-opus-20240229", 1024, messages).await;
+    #[ignore = "let's not waste API credits"]
+    #[tokio::test]
+    async fn runit() {
+        pretty_env_logger::try_init().ok();
+        let client = AnthropicClient::new();
+        let messages = vec![Message {
+            role: "user",
+            content: TEST_PROMPT,
+        }];
+        let response = client
+            .create_message("claude-3-opus-20240229", 1024, messages)
+            .await;
 
-    match response {
-        Ok(res) => {
-            println!("Response: {:?}", res);
-        }
-        Err(err) => {
-            eprintln!("Error: {}", err);
-        }
-    }
-}
-
-
-#[tokio::test]
-async fn test_create_message_stream() {
-    let client = AnthropicClient::new();
-    let messages = vec![Message {
-        role: "user",
-        content: TEST_PROMPT,
-    }];
-
-    let result = client
-        .create_message_stream("claude-3-opus-20240229", 1024, messages)
-        .await;
-
-    match result {
-        Ok(resp) => {
-            dbg!(resp);
-        }
-        Err(err) => {
-            panic!("Error during streaming: {}", err);
+        match response {
+            Ok(res) => {
+                println!("Response: {:?}", res);
+            }
+            Err(err) => {
+                eprintln!("Error: {}", err);
+                panic!();
+            }
         }
     }
-}
+
+    // #[ignore = "let's not waste API credits"]
+    #[tokio::test]
+    async fn test_create_message_stream() {
+        pretty_env_logger::try_init().ok();
+        let client = AnthropicClient::new();
+        let messages = vec![Message {
+            role: "user",
+            content: TEST_PROMPT,
+        }];
+
+        let result = client
+            .create_message_stream("claude-3-opus-20240229", 1024, messages)
+            .await;
+
+        match result {
+            Ok(resp) => {
+                dbg!(resp);
+            }
+            Err(err) => {
+                panic!("Error during streaming: {}", err);
+            }
+        }
+    }
 }
