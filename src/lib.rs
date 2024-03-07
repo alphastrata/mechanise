@@ -5,6 +5,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::env;
 use thiserror::Error;
 
@@ -43,8 +44,8 @@ enum StreamEvent {
         index: usize,
         content_block: ContentBlock,
     },
-    ContentBlockStop {
-        index: usize,
+    ContentBlockStopData {
+        v: Value,
     },
     MessageDeltaData {
         delta: MessageResponseDelta,
@@ -208,19 +209,14 @@ impl AnthropicClient {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             let line = std::str::from_utf8(&chunk)?;
-
-            log::debug!("Chunk: {}", chunk.len());
-            log::debug!("line : {} ", line);
-
             let sanitised_line = CONTROL_CHAR_REGEX.replace_all(line, "");
 
             if let Some(event_type) = &sanitised_line.strip_prefix("event: ") {
                 log::debug!("event_type: {:#?}", event_type);
                 let Ok(event) =
                     serde_json::from_str::<StreamEvent>(&format!(r#"{{"type":"{}"}}"#, event_type))
-                // .map_err(AnthropicError::EventDeserializationError)?;
                 else {
-                    log::error!("sanitised_line: {}", sanitised_line);
+                    log::error!("sanitised_line: {}", event_type);
                     continue;
                 };
 
@@ -238,7 +234,7 @@ impl AnthropicClient {
                         // We should do something more sophisiticated than this...
                         print!("{}", delta.text);
                     }
-                    StreamEvent::ContentBlockStop { index: _ } => {
+                    StreamEvent::ContentBlockStopData { index: _ } => {
                         log::debug!("This Content block has ended...");
                     }
                     StreamEvent::MessageDeltaData { delta } => {
@@ -290,7 +286,7 @@ mod test {
         }
     }
 
-    #[ignore = "let's not waste API credits"]
+    // #[ignore = "let's not waste API credits"]
     #[tokio::test]
     async fn test_create_message_stream() {
         pretty_env_logger::try_init().ok();
@@ -301,7 +297,7 @@ mod test {
         }];
 
         let result = client
-            .create_message_stream("claude-3-opus-20240229", 10, messages) // I'm a cheapskate :p
+            .create_message_stream("claude-3-opus-20240229", 2, messages) // I'm a cheapskate :p
             .await;
 
         match result {
