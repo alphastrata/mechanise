@@ -8,29 +8,28 @@ use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
-
 use thiserror::Error;
 
 static CONTROL_CHAR_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"[\x00-\x1F]").unwrap());
 
 #[derive(Debug, Deserialize)]
-struct Usage {
-    input_tokens: u32,
-    output_tokens: u32,
+pub struct Usage {
+   pub input_tokens: u32,
+   pub output_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename = "message")]
-struct MessageResponse {
+pub struct MessageResponse {
     id: String,
     #[serde(rename = "type")]
-    type_field: String,
-    role: String,
-    content: Vec<ContentBlock>,
+    _type: String,
+    pub role: String,
+    pub content: Vec<ContentBlock>,
     model: String,
     stop_reason: String,
     stop_sequence: Option<String>,
-    usage: Usage,
+    pub usage: Usage,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,7 +66,7 @@ struct MessageStart {
 #[derive(Debug, Deserialize)]
 struct ContentBlockDelta {
     #[serde(rename = "type")]
-    type_field: String,
+    _type: String,
     text: String,
 }
 
@@ -79,28 +78,28 @@ struct MessageResponseDelta {
 }
 
 #[derive(Debug, Deserialize)]
-struct ContentBlock {
+pub struct ContentBlock {
     #[serde(rename = "type")]
-    type_field: String,
+    _type: String,
     text: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Message<'a> {
-    role: &'a str,
-    content: &'a str,
+pub struct Message<'a> {
+   pub  role: &'a str,
+  pub   content: &'a str,
 }
 
 #[derive(Debug, Serialize)]
-struct CreateMessageRequest<'a> {
-    model: &'a str,
-    max_tokens: u32,
-    messages: Vec<Message<'a>>,
-    stream: bool,
+pub struct CreateMessageRequest<'a> {
+   pub  model: &'a str,
+   pub  max_tokens: u32,
+   pub  messages: Vec<Message<'a>>,
+   pub  stream: bool,
 }
 
 #[derive(Error, Debug)]
-enum AnthropicError {
+pub enum AnthropicError {
     #[error(transparent)]
     ReqwestError(#[from] reqwest::Error),
 
@@ -117,19 +116,19 @@ enum AnthropicError {
     BytesToStringError(#[from] std::str::Utf8Error),
 }
 
-struct AnthropicClient {
+pub struct AnthropicClient {
     client: Client,
     api_key: String,
 }
 
 impl AnthropicClient {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let api_key = env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
         let client = Client::new();
         Self { client, api_key }
     }
 
-    async fn create_message<'a>(
+   pub async fn create_message<'a>(
         &self,
         model: &'a str,
         max_tokens: u32,
@@ -162,7 +161,7 @@ impl AnthropicClient {
         Ok(response_body)
     }
 
-    async fn create_message_stream<'a>(
+   pub async fn create_message_stream<'a>(
         &self,
         model: &'a str,
         max_tokens: u32,
@@ -278,7 +277,7 @@ mod test {
             content: TEST_PROMPT,
         }];
         let response = client
-            .create_message("claude-3-opus-20240229", 1024, messages)
+            .create_message("claude-3-opus-20240229", 128, messages)
             .await;
 
         match response {
@@ -292,7 +291,7 @@ mod test {
         }
     }
 
-    // #[ignore = "let's not waste API credits"]
+    #[ignore = "let's not waste API credits"]
     #[tokio::test]
     async fn test_create_message_stream() {
         pretty_env_logger::try_init().ok();
