@@ -8,6 +8,7 @@ use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
+
 use thiserror::Error;
 
 static CONTROL_CHAR_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"[\x00-\x1F]").unwrap());
@@ -19,6 +20,7 @@ struct Usage {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename = "message")]
 struct MessageResponse {
     id: String,
     #[serde(rename = "type")]
@@ -35,28 +37,31 @@ struct MessageResponse {
 #[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 enum StreamEvent {
-    MessageStart {
-        message: MessageResponse,
+    ContentBlockDeltaData {
+        index: usize,
+        delta: ContentBlockDelta,
     },
     ContentBlockStart {
         index: usize,
         content_block: ContentBlock,
     },
-    Ping,
-    ContentBlockDelta {
-        index: usize,
-        delta: ContentBlockDelta,
-    },
     ContentBlockStop {
         index: usize,
     },
-    MessageDelta {
+    MessageDeltaData {
         delta: MessageResponseDelta,
     },
     MessageStartData {
-        inner: serde_json::Value,
+        #[serde(rename = "type")]
+        _type: MessageStart,
     },
-    MessageStop,
+    MessageStopData,
+    Ping,
+}
+
+#[derive(Debug, Deserialize)]
+struct MessageStart {
+    message: MessageResponse,
 }
 
 #[derive(Debug, Deserialize)]
@@ -199,8 +204,6 @@ impl AnthropicClient {
     where
         S: Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
     {
-        let mut message_response = None;
-        let mut content_blocks = Vec::new();
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
@@ -224,63 +227,29 @@ impl AnthropicClient {
 
                 log::debug!("PreMatch Event: {:#?}", event);
                 match event {
-                    StreamEvent::MessageStart { message } => {
-                        message_response = Some(message);
-                        content_blocks.clear();
-                    }
-                    StreamEvent::ContentBlockStart {
-                        index,
-                        content_block,
+                    StreamEvent::ContentBlockStart { ..
                     } => {
-                        content_blocks.insert(index, content_block);
+                        // Ignore them
                     }
                     StreamEvent::Ping => {
                         // Ignore ping events
                     }
-                    StreamEvent::ContentBlockDelta { index, delta } => {
-                        if let Some(block) = content_blocks.get_mut(index) {
-                            block.text.push_str(&delta.text);
-                        } else {
-                            return Err(AnthropicError::AnthropicError(
-                                "Received content block delta for unknown index".to_string(),
-                            ));
-                        }
+                    StreamEvent::ContentBlockDeltaData {  delta,.. } => {
+                        print!("{}", delta.text);
+                        
                     }
                     StreamEvent::ContentBlockStop { index: _ } => {
                         // Ignore content block stop events
                     }
-                    StreamEvent::MessageDelta { delta } => {
-                        if let Some(ref mut message) = message_response {
-                            message.stop_reason = delta.stop_reason;
-                            message.stop_sequence = delta.stop_sequence;
-                            message.usage = delta.usage;
-                        } else {
-                            return Err(AnthropicError::AnthropicError(
-                                "Received message delta before message start".to_string(),
-                            ));
-                        }
+                    StreamEvent::MessageDeltaData { delta } => {
+                        log::debug!("stop_reason: {}", delta.stop_reason);
+                        log::debug!("stop_sequence: {}", delta.stop_sequence.unwrap_or_default());
+                        log::debug!("usage: {}", delta.usage.output_tokens);
                     }
-                    StreamEvent::MessageStop => {
-                        if let Some(ref message) = message_response {
-                            println!("Final message response: {:?}", message);
-                            println!("Content blocks: {:?}", content_blocks);
-                        } else {
-                            return Err(AnthropicError::AnthropicError(
-                                "Received message stop before message start".to_string(),
-                            ));
-                        }
+                    StreamEvent::MessageStartData { _type: message } => {
+                        message.message.content.iter().for_each(|cb| print!("{}", cb.text));
                     }
-
-                    StreamEvent::MessageStartData { inner: v } => {
-                        log::error!("Messagestartdata");
-                        log::debug!("{:#?}", v);
-                    }
-
-                    #[allow(unreachable_code)]
-                    _ => {
-                        log::error!("Unknown match arm");
-                        log::debug!("{:#?}", event);
-                    }
+                    _ => unreachable!("You should only see this if the Anthropic API has added new goodies for us to implement against, please file a bug report!"),
                 }
             } else {
                 log::debug!("sanitised_line: {:#?}", sanitised_line);
@@ -294,7 +263,7 @@ impl AnthropicClient {
 #[cfg(test)]
 mod test {
     use super::*;
-    const TEST_PROMPT: &'static str = "Write me a rust function that generates a SECURE password of length `n`. Ideally, use the openssl crate, iterator patterns and be idiomatic. respond ONLY with the code, I do NOT require an explination.";
+    const TEST_PROMPT: &str = "Write me a rust function that generates a SECURE password of length `n`. Ideally, use the openssl crate, iterator patterns and be idiomatic. respond ONLY with the code, I do NOT require an explination.";
 
     #[ignore = "let's not waste API credits"]
     #[tokio::test]
