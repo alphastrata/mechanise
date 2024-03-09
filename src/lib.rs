@@ -111,13 +111,12 @@ impl AnthropicClient {
             let chunk = chunk?;
             let line = CONTROL_CHAR_REGEX.replace_all(std::str::from_utf8(&chunk)?, "");
 
-            
             if let Some(line) = line.strip_suffix("data: ") {
                 let ev = StreamEvent::parse(&line)?;
                 if let Some(resp_text) = handle_event(ev) {
                     _ = tx.send(resp_text);
                 }
-            }   
+            }
         }
 
         Ok(())
@@ -131,18 +130,15 @@ fn handle_event(event: StreamEvent) -> Option<String> {
                 return Some(content.text.to_owned());
             }
         }
-        StreamEvent::ContentBlockStart {
-            index,
-            content_block,
-        } => {
+        StreamEvent::ContentBlockStart { content_block, .. } => {
             return Some(content_block.text);
         }
         StreamEvent::Ping => {}
-        StreamEvent::ContentBlockDelta { index, delta } => {
+        StreamEvent::ContentBlockDelta { delta, .. } => {
             return Some(delta.text);
         }
-        StreamEvent::ContentBlockStop { index } => {}
-        StreamEvent::MessageDelta { delta, .. } => {}
+        StreamEvent::ContentBlockStop { .. } => {}
+        StreamEvent::MessageDelta { .. } => {}
         StreamEvent::MessageStop => {
             dbg!("stop");
         }
@@ -162,13 +158,11 @@ mod test {
     use tokio::io::AsyncBufReadExt;
     use tokio::io::BufReader;
 
-    // const TEST_PROMPT: &str = "Write me a rust function that generates a SECURE password of length `n`. Ideally, use the openssl crate, iterator patterns and be idiomatic. respond ONLY with the code, I do NOT require an explination.";
-    const TEST_PROMPT: &str = "Hello claude!";
+    const TEST_PROMPT: &str = "Write me a rust function that generates a SECURE password of length `n`. Ideally, use the openssl crate, iterator patterns and be idiomatic. respond ONLY with the code, I do NOT require an explination.";
 
     #[ignore = "let's not waste API credits"]
     #[tokio::test]
-    async fn runit() {
-        pretty_env_logger::try_init().ok();
+    async fn run_single_resp() {
         let client = AnthropicClient::new();
         let messages = vec![Message {
             role: "user",
@@ -183,16 +177,14 @@ mod test {
                 println!("Response: {:?}", res);
             }
             Err(err) => {
-                eprintln!("Error: {}", err);
-                panic!();
+                panic!("Error: {}", err);
             }
         }
     }
 
     #[ignore = "let's not waste API credits"]
     #[tokio::test]
-    async fn test_create_message_stream() {
-        pretty_env_logger::try_init().ok();
+    async fn run_stream_resp() {
         let client = AnthropicClient::new();
         let messages = vec![Message {
             role: "user",
@@ -200,12 +192,14 @@ mod test {
         }];
 
         let result = client
-            .create_message_stream("claude-3-opus-20240229", 2, messages) // I'm a cheapskate :p
+            .create_message_stream("claude-3-opus-20240229", 128, messages) // I'm a cheapskate :p
             .await;
 
         match result {
-            Ok(resp) => {
-                dbg!(resp);
+            Ok(mut resp) => {
+                while let Some(resp) = resp.recv().await {
+                    dbg!(resp);
+                }
             }
             Err(err) => {
                 panic!("Error during streaming: {}", err);
@@ -214,8 +208,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn can_parse() -> Result<(), Box<dyn std::error::Error>> {
-        let file_path = "raw_chunk.jsonl"; // Adjust the file path as necessary
+    async fn can_parse_stream_events() -> Result<(), Box<dyn std::error::Error>> {
+        let file_path = "test_assets/raw_chunk.jsonl"; // Adjust the file path as necessary
         let file = File::open(file_path).await?;
         let reader = BufReader::new(file);
         let mut lines = reader.lines();
