@@ -5,8 +5,6 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::Client;
 use std::env;
-use tokio::sync::mpsc::Receiver;
-use tokio::sync::mpsc::Sender;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -39,7 +37,7 @@ impl AnthropicClient {
         max_tokens: u32,
         messages: Vec<Message<'a>>,
     ) -> Result<MessageResponse, AnthropicError> {
-        let request = CreateMessageRequest {
+        let request = MessageRequest {
             model,
             max_tokens,
             messages,
@@ -72,7 +70,7 @@ impl AnthropicClient {
         max_tokens: u32,
         messages: Vec<Message<'a>>,
     ) -> Result<UnboundedReceiver<String>, AnthropicError> {
-        let request = CreateMessageRequest {
+        let request = MessageRequest {
             model,
             messages,
             max_tokens,
@@ -111,9 +109,7 @@ impl AnthropicClient {
     {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
-            let line = std::str::from_utf8(&chunk)?;
-            _ = append_chunk_to_file(line, "raw_chunk.jsonl");
-            let line = CONTROL_CHAR_REGEX.replace_all(line, "");
+            let line = CONTROL_CHAR_REGEX.replace_all(std::str::from_utf8(&chunk)?, "");
 
             
             if let Some(line) = line.strip_suffix("data: ") {
@@ -121,8 +117,7 @@ impl AnthropicClient {
                 if let Some(resp_text) = handle_event(ev) {
                     _ = tx.send(resp_text);
                 }
-            }
-            
+            }   
         }
 
         Ok(())
@@ -158,20 +153,6 @@ impl StreamEvent {
     fn parse(data: &str) -> Result<Self, AnthropicError> {
         Ok(serde_json::from_str::<Self>(data)?)
     }
-}
-
-fn append_chunk_to_file(sanitised_line: &str, file_path: &str) -> Result<(), AnthropicError> {
-    use std::fs::OpenOptions;
-    use std::io::Write;
-    let mut file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(file_path)
-        .unwrap();
-
-    writeln!(file, "{}", sanitised_line).unwrap();
-
-    Ok(())
 }
 
 #[cfg(test)]

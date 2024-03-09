@@ -36,6 +36,7 @@ pub struct Delta {
     #[serde(flatten)]
     pub usage: Usage,
 }
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamEvent {
@@ -57,11 +58,9 @@ pub enum StreamEvent {
     MessageDelta {
         #[serde(flatten)]
         delta: Delta,
-      
     },
     MessageStop,
 }
-
 
 #[derive(Debug, Deserialize)]
 pub struct Usage {
@@ -76,7 +75,7 @@ pub struct Message<'a> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct CreateMessageRequest<'a> {
+pub struct MessageRequest<'a> {
     pub model: &'a str,
     pub max_tokens: u32,
     pub messages: Vec<Message<'a>>,
