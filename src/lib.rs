@@ -4,120 +4,12 @@ use log::error;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::env;
-use thiserror::Error;
+
+pub mod anthropic_types;
+use crate::anthropic_types::*;
 
 static CONTROL_CHAR_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"[\x00-\x1F]").unwrap());
-
-#[derive(Debug, Deserialize)]
-pub struct Usage {
-    pub input_tokens: u32,
-    pub output_tokens: u32,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename = "message")]
-pub struct MessageResponse {
-    pub id: String,
-    #[serde(rename = "type")]
-    _type: String,
-    pub role: String,
-    pub content: Vec<ContentBlock>,
-    pub model: String,
-    pub stop_reason: String,
-    pub stop_sequence: Option<String>,
-    pub usage: Usage,
-}
-
-#[derive(Debug, Deserialize)]
-#[non_exhaustive]
-#[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
-enum StreamEvent {
-    ContentBlockDeltaData {
-        index: usize,
-        delta: ContentBlockDelta,
-    },
-    ContentBlockStart {
-        index: usize,
-        content_block: ContentBlock,
-    },
-    ContentBlockStopData {
-        v: Value,
-    },
-    MessageDeltaData {
-        delta: MessageResponseDelta,
-    },
-    MessageStartData {
-        #[serde(rename = "type")]
-        _type: MessageStart,
-    },
-    MessageStopData,
-    Ping,
-}
-
-#[derive(Debug, Deserialize)]
-struct MessageStart {
-    message: MessageResponse,
-}
-
-#[derive(Debug, Deserialize)]
-struct ContentBlockDelta {
-    #[serde(rename = "type")]
-    _type: String,
-    text: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct MessageResponseDelta {
-    stop_reason: String,
-    stop_sequence: Option<String>,
-    usage: Usage,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ContentBlock {
-    #[serde(rename = "type")]
-    _type: String,
-    text: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Message<'a> {
-    pub role: &'a str,
-    pub content: &'a str,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CreateMessageRequest<'a> {
-    pub model: &'a str,
-    pub max_tokens: u32,
-    pub messages: Vec<Message<'a>>,
-    pub stream: bool,
-}
-
-#[derive(Error, Debug)]
-pub enum AnthropicError {
-    #[error(transparent)]
-    ReqwestError(#[from] reqwest::Error),
-
-    #[error("Unexpected response status: {0}")]
-    UnexpectedStatus(u16),
-
-    #[error("Error response from Anthropic: {0}")]
-    AnthropicError(String),
-
-    #[error("Error deserializing stream event: {0}")]
-    EventDeserializationError(#[from] serde_json::Error),
-
-    #[error("Error converting bytes to string: {0}")]
-    BytesToStringError(#[from] std::str::Utf8Error),
-
-    #[error("Error processing values received from Anthropic Responses")]
-    ParseResponseError,
-}
 
 pub struct AnthropicClient {
     client: Client,
@@ -201,55 +93,52 @@ impl AnthropicClient {
 
         self.handle_stream(response.bytes_stream()).await
     }
-
     async fn handle_stream<S>(&self, mut stream: S) -> Result<(), AnthropicError>
     where
         S: Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
     {
+        let mut event_type = String::new();
+        let mut data_json = String::new();
+        let mut processing_data = false;
+
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             let line = std::str::from_utf8(&chunk)?;
-            let sanitised_line = CONTROL_CHAR_REGEX.replace_all(line, "");
+            _ = append_chunk_to_file(line, "raw_chunk.jsonl");
+            let line = CONTROL_CHAR_REGEX.replace_all(line, "");
 
-            if let Some(event_type) = &sanitised_line.strip_prefix("event: ") {
-                log::debug!("event_type: {:#?}", event_type);
-                let Ok(event) =
-                    serde_json::from_str::<StreamEvent>(&format!(r#"{{"type":"{}"}}"#, event_type))
-                else {
-                    log::error!("sanitised_line: {}", event_type);
-                    continue;
-                };
+            if line.starts_with("event: ") {
+                if !event_type.is_empty() && !data_json.is_empty() {
+                    // Process the previous event
+                    let full_event_json =
+                        format!(r#"{{"type":"{}","data":{}}}"#, event_type, data_json);
 
-                log::debug!("PreMatch Event: {:#?}", event);
-                match event {
-                    StreamEvent::MessageStartData { _type: message } => {
-                        log::debug!("New Message stream starting...");
-                        message.message.content.iter().for_each(|cb| print!("{}", cb.text));
+                    if let Ok(event) = serde_json::from_str::<StreamEvent>(&full_event_json) {
+                        handle_event(event);
                     }
-                    StreamEvent::ContentBlockStart { ..
-                    } => {
-                        log::debug!("New Content block starting...");
-                    }
-                    StreamEvent::ContentBlockDeltaData {  delta,.. } => {
-                        // We should do something more sophisiticated than this...
-                        print!("{}", delta.text);
-                    }
-                    StreamEvent::ContentBlockStopData { index: _ } => {
-                        log::debug!("This Content block has ended...");
-                    }
-                    StreamEvent::MessageDeltaData { delta } => {
-                        log::debug!("stop_reason: {}", delta.stop_reason);
-                        log::debug!("stop_sequence: {}", delta.stop_sequence.unwrap_or_default());
-                        log::debug!("usage: {}", delta.usage.output_tokens);
-                    }
-                    StreamEvent::Ping => {
-                        log::debug!("Received Ping...");
-                    }
-                    _ => unreachable!("You should only see this if the Anthropic API has added new goodies for us to implement against, please file a bug report!"),
+                    event_type.clear();
+                    data_json.clear();
                 }
-            } else {
-                log::error!("Failed to get an `event:` prefix on returned value from the API");
-                return Err(AnthropicError::ParseResponseError);
+                event_type = line["event: ".len()..].trim().to_string();
+                processing_data = false;
+            } else if line.starts_with("data: ") {
+                data_json = line["data: ".len()..].trim().to_string();
+                processing_data = true;
+            }
+
+            if processing_data {
+                // Attempt to deserialize and process the event here
+                let full_event_json =
+                    format!(r#"{{"type":"{}","data":{}}}"#, event_type, data_json);
+                if let Ok(event) = serde_json::from_str::<StreamEvent>(&full_event_json) {
+                    handle_event(event);
+                } else {
+                    eprintln!("{}", full_event_json);
+                    panic!()
+                }
+                event_type.clear();
+                data_json.clear();
+                processing_data = false;
             }
         }
 
@@ -257,10 +146,57 @@ impl AnthropicClient {
     }
 }
 
+fn handle_event(event: StreamEvent) {
+    match event {
+        StreamEvent::MessageStart { message } => {
+            if let Some(content) = message.content.last() {
+                print!("{}", content.text);
+                _ = append_chunk_to_file(&content.text, "resp.txt");
+            }
+        }
+        StreamEvent::ContentBlockStart {
+            index,
+            content_block,
+        } => {
+            print!("{}", content_block.text);
+            _ = append_chunk_to_file(&content_block.text, "resp.txt");
+        }
+        StreamEvent::Ping => {}
+        StreamEvent::ContentBlockDelta { index, delta } => {
+            _ = append_chunk_to_file(&delta.text, "resp.txt");
+
+            print!("{}", delta.text);
+        }
+        StreamEvent::ContentBlockStop { index ,} => {}
+        StreamEvent::MessageDelta { delta,.. } => {
+            dbg!(&delta.usage);
+            _ = append_chunk_to_file(&format!("{:#?}", delta.usage), "resp.txt");
+        }
+        StreamEvent::MessageStop => {
+            dbg!("stop");
+        }
+    }
+}
+
+fn append_chunk_to_file(sanitised_line: &str, file_path: &str) -> Result<(), AnthropicError> {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    let mut file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(file_path)
+        .unwrap();
+
+    writeln!(file, "{}", sanitised_line).unwrap();
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
-    const TEST_PROMPT: &str = "Write me a rust function that generates a SECURE password of length `n`. Ideally, use the openssl crate, iterator patterns and be idiomatic. respond ONLY with the code, I do NOT require an explination.";
+    // const TEST_PROMPT: &str = "Write me a rust function that generates a SECURE password of length `n`. Ideally, use the openssl crate, iterator patterns and be idiomatic. respond ONLY with the code, I do NOT require an explination.";
+    const TEST_PROMPT: &str = "Hello claude!";
 
     #[ignore = "let's not waste API credits"]
     #[tokio::test]
@@ -286,7 +222,7 @@ mod test {
         }
     }
 
-    // #[ignore = "let's not waste API credits"]
+    #[ignore = "let's not waste API credits"]
     #[tokio::test]
     async fn test_create_message_stream() {
         pretty_env_logger::try_init().ok();
@@ -308,5 +244,57 @@ mod test {
                 panic!("Error during streaming: {}", err);
             }
         }
+    }
+
+    #[cfg(test)]
+    use super::*; // Import necessary structs/enums and functions from the parent module
+    use tokio::fs::File;
+    use tokio::io::AsyncBufReadExt; // For reading lines asynchronously
+    use tokio::io::BufReader;
+
+    #[tokio::test]
+    async fn can_parse() -> Result<(), Box<dyn std::error::Error>> {
+        let file_path = "raw_chunk.jsonl"; // Adjust the file path as necessary
+        let file = File::open(file_path).await?;
+        let reader = BufReader::new(file);
+        let mut lines = reader.lines();
+
+        let mut current_data = String::new();
+
+        while let Some(line) = lines.next_line().await? {
+            if line.starts_with("event: ") {
+                continue;
+            } else if line.starts_with("data: ") {
+                current_data = line["data: ".len()..].to_string();
+                parse_event(&current_data)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn parse_event(data: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // This is where you construct the JSON string and attempt to deserialize it
+        // Construct a full event JSON string
+        let v = serde_json::to_value(&data).unwrap();
+        println!("\n\n{}", v.to_string());
+
+        dbg!("V PARSED");
+        let event_json = format!("{}", data);
+
+        // let event: StreamEvent = serde_json::from_str(&event_json)?;
+        let event: StreamEvent = match serde_json::from_str(&event_json){
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("\n\n{e}\n\n\n{data}");
+                panic!()
+            }
+        };
+
+        // Here, you would normally process the event...
+        // For this test, we're just checking if parsing succeeds
+        println!("Successfully parsed an event: {:?}", event);
+
+        Ok(())
     }
 }
