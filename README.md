@@ -12,7 +12,7 @@ It exists because getting llms to write an API for themselves has become somewha
 ## Goals:
 
 - Easy-to-use API.
-- Convenient methods for generating content using the Gemini API.
+- Convenient methods for generating content.
 - Have these goals met by llms predominantly writing most of the code.
 
 ## Usage
