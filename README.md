@@ -5,14 +5,15 @@
 
 # mechanise
 
-Mechanise is a Rust library that provides a simple and intuitive interface for interacting with the Google Gemini REST API.
+Mechanise is a Rust library that provides a simple and intuitive interface for interacting with the Anthropic's `messages` REST API.
 
-It exists because getting llms to write an API for themselves has become somewhat of a past time of mine to evaluate them.
+It exists because getting llms to write an API for themselves has become somewhat of a pastime of mine to evaluate them.
 
 ## Goals:
 
-- Easy-to-use API client for Google Gemini services.
+- Easy-to-use API.
 - Convenient methods for generating content using the Gemini API.
+- Have these goals met by llms predominantly writing most of the code.
 
 ## Usage
 
@@ -23,7 +24,9 @@ To get started with Mechanise, add it as a dependency to your Rust project's `Ca
 mechanise = "0.1.0"
 ```
 
-After adding Mechanise as a dependency, you will need to obtain an [API key](https://console.anthropic.com/settings/keys) API to interact with the services.
+or, `cargo add mechanise` if that's your preferred method of adding dependencies.
+
+After adding Mechanise as a dependency, you will need to obtain an [API key](https://console.anthropic.com/settings/keys) to interact with the services.
 
 Make sure to set the `ANTHROPIC_API_KEY` environment variable with your API key before running your application.
 
