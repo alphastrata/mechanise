@@ -62,10 +62,7 @@ impl AnthropicClient {
 #[cfg(test)]
 mod test {
     use super::*;
-
-
-    pub const TEST_PROMPT: &str = "Write me a rust function that generates a SECURE password of length `n`. Ideally, use the openssl crate, iterator patterns and be idiomatic. respond ONLY with the code, I do NOT require an explination.";
-
+  
     #[ignore = "let's not waste API credits"]
     #[tokio::test]
     async fn run_single_resp() {
@@ -86,5 +83,6 @@ mod test {
                 panic!("Error: {}", err);
             }
         }
+        Ok(())
     }
 }
