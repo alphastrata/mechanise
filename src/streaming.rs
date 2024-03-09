@@ -105,6 +105,7 @@ mod test{
     use tokio::io::BufReader;
 
     use crate::test::TEST_PROMPT;
+
     use super::*;
 
     #[ignore = "let's not waste API credits"]
