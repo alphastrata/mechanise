@@ -64,7 +64,7 @@ mod test {
     use super::*;
 
 
-    const TEST_PROMPT: &str = "Write me a rust function that generates a SECURE password of length `n`. Ideally, use the openssl crate, iterator patterns and be idiomatic. respond ONLY with the code, I do NOT require an explination.";
+    pub const TEST_PROMPT: &str = "Write me a rust function that generates a SECURE password of length `n`. Ideally, use the openssl crate, iterator patterns and be idiomatic. respond ONLY with the code, I do NOT require an explination.";
 
     #[ignore = "let's not waste API credits"]
     #[tokio::test]
@@ -87,31 +87,4 @@ mod test {
             }
         }
     }
-
-    #[ignore = "let's not waste API credits"]
-    #[tokio::test]
-    async fn run_stream_resp() {
-        let client = AnthropicClient::new();
-        let messages = vec![Message {
-            role: "user",
-            content: TEST_PROMPT,
-        }];
-
-        let result = client
-            .create_message_stream("claude-3-opus-20240229", 128, messages) // I'm a cheapskate :p
-            .await;
-
-        match result {
-            Ok(mut resp) => {
-                while let Some(resp) = resp.recv().await {
-                    dbg!(resp);
-                }
-            }
-            Err(err) => {
-                panic!("Error during streaming: {}", err);
-            }
-        }
-    }
-
-  
 }
