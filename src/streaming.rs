@@ -2,6 +2,7 @@ use futures_util::{Stream, StreamExt};
 use log::error;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use serde::Serialize;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{anthropic_types::*, AnthropicClient};
@@ -10,26 +11,18 @@ static CONTROL_CHAR_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"[\x00-\x1F]")
 
 
 impl AnthropicClient{
-    pub async fn create_message_stream<'a>(
+    pub async fn create_message_stream<'a, T>(
         &self,
-        model: &'a str,
-        max_tokens: u32,
-        messages: Vec<Message<'a>>,
-    ) -> Result<UnboundedReceiver<String>, AnthropicError> {
-        let request = MessageRequest {
-            model,
-            messages,
-            max_tokens,
-            stream: true,
-        };
-
+        request : &T,
+    ) -> Result<UnboundedReceiver<String>, AnthropicError> where T: Serialize {
+       
         let response = self
             .client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", &self.api_key) // Use the correct header name
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
-            .json(&request)
+            .json(request)
             .send()
             .await?;
 
@@ -117,8 +110,15 @@ mod test{
             content: TEST_PROMPT,
         }];
 
+        let request = SimpleMessageRequest {
+            model: "claude-3-opus-20240229",
+            messages,
+            max_tokens: 128,
+            stream: true,
+        };
+
         let result = client
-            .create_message_stream("claude-3-opus-20240229", 128, messages) // I'm a cheapskate :p
+            .create_message_stream(&request) // I'm a cheapskate :p
             .await;
 
         match result {

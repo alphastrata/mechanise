@@ -1,5 +1,9 @@
 use reqwest::Client;
+use serde::Serialize;
 use std::env;
+
+mod requests;
+use crate::requests::*;
 
 #[cfg(feature = "streaming")]
 pub mod streaming;
@@ -24,26 +28,18 @@ impl AnthropicClient {
         Self { client, api_key }
     }
 
-    pub async fn create_message<'a>(
+    pub async fn create_message<'a, T>(
         &self,
-        model: &'a str,
-        max_tokens: u32,
-        messages: Vec<Message<'a>>,
-    ) -> Result<MessageResponse, AnthropicError> {
-        let request = MessageRequest {
-            model,
-            max_tokens,
-            messages,
-            stream: false,
-        };
-
+        request: &T,
+    ) -> Result<MessageResponse, AnthropicError> where T: Serialize {
+      
         let response = self
             .client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", &self.api_key) // Use the correct header name
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
-            .json(&request)
+            .json(request)
             .send()
             .await?;
 
@@ -73,8 +69,15 @@ mod test {
             role: "user",
             content: TEST_PROMPT,
         }];
+
+        let request = SimpleMessageRequest {
+            model: "claude-3-opus-20240229",
+            messages,
+            max_tokens: 128,
+            stream: true,
+        };
         let response = client
-            .create_message("claude-3-opus-20240229", 128, messages)
+            .create_message(&request)
             .await;
 
         match response {

@@ -75,7 +75,7 @@ pub struct Message<'a> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct MessageRequest<'a> {
+pub struct SimpleMessageRequest<'a> {
     pub model: &'a str,
     pub max_tokens: u32,
     pub messages: Vec<Message<'a>>,
