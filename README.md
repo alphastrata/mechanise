@@ -38,10 +38,17 @@ async fn main() -> Result<(), AnthropicError> {
     let client = AnthropicClient::new();
     let messages = vec![Message {
         role: "user",
-        content: "Write me a rust function that can generate secure passwords",
+        content: TEST_PROMPT,
     }];
+
+    let request = SimpleMessageRequest {
+        model: "claude-3-opus-20240229",
+        messages,
+        max_tokens: 128,
+        stream: true,
+    };
     let response = client
-        .create_message("claude-3-opus-20240229", 128, messages)
+        .create_message(&request)
         .await;
 
     match response {
@@ -57,7 +64,28 @@ async fn main() -> Result<(), AnthropicError> {
 }
 ```
 
+There is a `MessageRequestBuilder` to help you build more _complex_ `MessageRequest`s.
+
 > NOTE: `AnthropicError` will `#transparent` most of / all of the errors possible from the dependency crates so be aware of that should you encounter problems.
+
+## TODO:
+- [ ] Support Images for `claude3`.
+```json
+{"role": "user", "content": [
+  {
+    "type": "image",
+    "source": {
+      "type": "base64",
+      "media_type": "image/jpeg",
+      "data": "/9j/4AAQSkZJRg...",
+    }
+  },
+  {"type": "text", "text": "What is in this image?"}
+]}
+```
+> _They currently support the base64 source type for images, and the image/jpeg, image/png, image/gif, and image/webp mime types._
+
+
 
 ## Testing
 

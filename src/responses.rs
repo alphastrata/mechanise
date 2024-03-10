@@ -16,10 +16,14 @@ pub struct MessageResponse {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ContentBlock {
-    #[serde(rename = "type")]
-    pub _type: String,
-    pub text: String,
+#[serde(untagged)]
+pub enum ContentBlock {
+    Text { text: String },
+    Image {
+        #[serde(rename = "type")]
+        image_type: String,
+        source: crate::ImageSource,
+    },
 }
 
 #[derive(Debug, Deserialize)]

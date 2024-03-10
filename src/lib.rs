@@ -5,10 +5,12 @@ use std::env;
 pub mod requests;
 #[cfg(feature = "streaming")]
 pub mod streaming;
-pub mod anthropic_types;
+pub mod responses;
+pub mod images;
 
-pub use crate::anthropic_types::*;
+pub use crate::responses::*;
 pub use requests::*;
+pub use images::*;
 
 
 pub struct AnthropicClient {

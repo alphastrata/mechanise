@@ -5,17 +5,18 @@ use regex::Regex;
 use serde::Serialize;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::{anthropic_types::*, AnthropicClient};
+use crate::{responses::*, AnthropicClient};
 
 static CONTROL_CHAR_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"[\x00-\x1F]").unwrap());
 
-
-impl AnthropicClient{
+impl AnthropicClient {
     pub async fn create_message_stream<'a, T>(
         &self,
-        request : &T,
-    ) -> Result<UnboundedReceiver<String>, AnthropicError> where T: Serialize {
-       
+        request: &T,
+    ) -> Result<UnboundedReceiver<String>, AnthropicError>
+    where
+        T: Serialize,
+    {
         let response = self
             .client
             .post("https://api.anthropic.com/v1/messages")
@@ -66,20 +67,30 @@ fn handle_event(event: StreamEvent) -> Option<String> {
     match event {
         StreamEvent::MessageStart { message } => {
             if let Some(content) = message.content.last() {
-                return Some(content.text.to_owned());
+                if let ContentBlock::Text { text } = content {
+                    return Some(text.to_owned());
+                }
             }
         }
         StreamEvent::ContentBlockStart { content_block, .. } => {
-            return Some(content_block.text);
+            if let ContentBlock::Text { text } = content_block {
+                return Some(text.to_owned());
+            }
         }
-        StreamEvent::Ping => {}
+        StreamEvent::Ping => {
+            log::trace!("Ping");
+        }
         StreamEvent::ContentBlockDelta { delta, .. } => {
             return Some(delta.text);
         }
-        StreamEvent::ContentBlockStop { .. } => {}
-        StreamEvent::MessageDelta { .. } => {}
+        StreamEvent::ContentBlockStop { .. } => {
+            log::info!("ContentBlockStop");
+        }
+        StreamEvent::MessageDelta { .. } => {
+            log::info!("MessageDelta");
+        }
         StreamEvent::MessageStop => {
-            dbg!("stop");
+            log::info!("MessageStop");
         }
     }
     None
@@ -90,14 +101,14 @@ impl StreamEvent {
     }
 }
 
-
 #[cfg(test)]
-mod test{
+mod test {
     use tokio::fs::File;
     use tokio::io::AsyncBufReadExt;
     use tokio::io::BufReader;
 
     use crate::test::TEST_PROMPT;
+    use crate::SimpleMessageRequest;
 
     use super::*;
 

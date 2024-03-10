@@ -37,3 +37,4 @@ futures-util = { version = "0.3.30", optional = true }
 bytes = { version = "1.5.0", optional = true }
 regex = { version = "1.10.3", optional = true }
 once_cell = { version = "1.19.0", optional = true }
+base64 = "0.22.0"
