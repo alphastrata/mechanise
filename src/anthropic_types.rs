@@ -74,13 +74,7 @@ pub struct Message<'a> {
     pub content: &'a str,
 }
 
-#[derive(Debug, Serialize)]
-pub struct SimpleMessageRequest<'a> {
-    pub model: &'a str,
-    pub max_tokens: u32,
-    pub messages: Vec<Message<'a>>,
-    pub stream: bool,
-}
+
 
 #[derive(Error, Debug)]
 pub enum AnthropicError {

@@ -2,13 +2,14 @@ use reqwest::Client;
 use serde::Serialize;
 use std::env;
 
-mod requests;
-use crate::requests::*;
-
+pub mod requests;
 #[cfg(feature = "streaming")]
 pub mod streaming;
 pub mod anthropic_types;
-use crate::anthropic_types::*;
+
+pub use crate::anthropic_types::*;
+pub use requests::*;
+
 
 pub struct AnthropicClient {
     client: Client,

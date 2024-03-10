@@ -1,18 +1,48 @@
 use serde::Serialize;
 use crate::Message;
 
+
+/// The simple version of a `MessageRequest` we make to Anthropic.
+/// if you want to play with the `p` values, and `temperature` etc
+/// use the [`MessageRequestBuilder`].
+#[derive(Debug, Serialize)]
+pub struct SimpleMessageRequest<'a> {
+    pub model: &'a str,
+    pub max_tokens: u32,
+    pub messages: Vec<Message<'a>>,
+    pub stream: bool,
+}
+
+/// The `MessageRequest` we make to Anthropic.
+/// if you want to play with the `p` values, and `temperature` etc
+/// use the [`MessageRequestBuilder`]
+/// if you want something simpler consider the [`SimpleMessageRequest`].
 #[derive(Debug, Serialize)]
 pub struct MessageRequest<'a> {
+    //Required:
     pub model: &'a str,
     pub messages: Vec<Message<'a>>,
     pub max_tokens: u32,
-    pub system: Option<&'a str>,
-    pub metadata: Option<Metadata<'a>>,
-    pub stop_sequences: Option<Vec<&'a str>>,
     pub stream: bool,
+
+    // Optional:
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Metadata<'a>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_sequences: Option<Vec<&'a str>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]    
+    pub system: Option<&'a str>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
-    pub top_p: Option<f32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub top_k: Option<u32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -52,6 +82,9 @@ pub struct MessageRequestBuilder<'a> {
 }
 
 impl<'a> MessageRequestBuilder<'a> {
+    const DEFAULT_CLAUDE:&'static str = "claude-3-opus-20240229";
+    const DEFAULT_MAX_TOKENS: u32 = 128;
+    
     pub fn new() -> Self {
         MessageRequestBuilder {
             model: None,
@@ -69,9 +102,9 @@ impl<'a> MessageRequestBuilder<'a> {
 
     pub fn build(self) -> MessageRequest<'a> {
         MessageRequest {
-            model: self.model.unwrap_or(""),
-            messages: self.messages.unwrap_or_default(),
-            max_tokens: self.max_tokens.unwrap_or(0),
+            model: self.model.unwrap_or(Self::DEFAULT_CLAUDE),
+            messages: self.messages.expect("You cannot make MessageRequests to the API with no Messages in them. This is a deliberate panic!"),
+            max_tokens: self.max_tokens.unwrap_or(Self::DEFAULT_MAX_TOKENS),
             system: self.system,
             metadata: self.metadata,
             stop_sequences: self.stop_sequences,
