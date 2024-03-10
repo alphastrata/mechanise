@@ -5,12 +5,9 @@ version = "0.0.1"
 edition = "2021"
 publish = true
 description = """
-THIS IS A WIP! (But the simplest functionality there)
-
 A, _hopefully_ Rusty wrapper for the Anthropic REST API for Anthropic's `claude` and maybe someday others...
 
-Note: This API was in part created with tools like Anthropic's Claude and Sonnet models, along with Gemini, ChatGPT4, and Phind.
-
+Note: This API was in part created with Anthropic's Sonnet model.
 """
 authors = ["jer, <alphastrata@gmail.com>"]
 readme = "./README.md"
